@@ -1,0 +1,43 @@
+【実行結果】
+obj1.message のアドレス: 0x64e5226adeb0
+obj2.message のアドレス: 0x64e5226aded0
+→別々のメモリ領域を指している！
+
+
+エラー解決の動作
+
+Message::Message(const Message& obj) {
+    if (obj.message != nullptr) {
+        message = new char[strlen(obj.message) + 1];  // ①新しいメモリを確保
+        strcpy(message, obj.message);                 // ②データをコピー
+    } else {
+        message = nullptr;
+    }
+}
+
+①新しいメモリを確保
+・strlen(obj.message) = コピー元の文字列の長さを取得
+・+ 1 = 文字列終端文字 \0 の分
+・new char[] = 新しい別のメモリ領域を確保
+・message = = 新しい住所をこのオブジェクトのmessageに記録
+
+②データをコピー
+・コピー元の文字列を新しいメモリ領域にコピー
+
+
+
+
+ーーーーーーーーーーーーーーー
+修正前 - 問題: 同じメモリを共有
+obj1.message → [同じメモリ領域] ← obj2.message
+              "Hello World."
+
+修正 - 解決: 別々のメモリ領域に同じ内容
+obj1.message → [メモリ領域A] "Hello World."
+obj2.message → [メモリ領域B] "Hello World."
+
+
+プログラム終了時の動作
+obj2のデストラクタ: メモリ領域Bを削除
+obj1のデストラクタ: メモリ領域Aを削除
+→ エラーなし: それぞれ別々のメモリを削除するため
