@@ -1,0 +1,12 @@
+$ ./program5-1 ~/ドキュメント/ソフトウェア演習2B/Code/ItoKyoka_Code/software_2B
+
+=== 課題1 動作確認 ===
+ディレクトリ: /home/y233324/ドキュメント/ソフトウェア演習2B/Code/ItoKyoka_Code/software_2B
+ファイル数: 6
+ファイル一覧:
+  [0] Report4
+  [1] Report2
+  [2] .vscode
+  [3] Report1
+  [4] Report3
+  [5] Report5

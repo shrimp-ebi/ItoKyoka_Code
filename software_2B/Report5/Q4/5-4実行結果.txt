@@ -1,0 +1,32 @@
+=== 課題4 プラグインシステム 動作確認 ===
+発見されたプラグイン数: 4
+  ./plugin/libAdd.so
+  ./plugin/libDiv.so
+  ./plugin/libSub.so
+  ./plugin/libMul.so
+
+--- ./plugin/libAdd.so ---
+プラグイン名: Add
+  exec(10, 5) = 15
+  exec(8.5, 2.5) = 11
+  exec(-3, 4) = 1
+
+--- ./plugin/libDiv.so ---
+プラグイン名: Div
+  exec(10, 5) = 2
+  exec(8.5, 2.5) = 3.4
+  exec(-3, 4) = -0.75
+
+--- ./plugin/libSub.so ---
+プラグイン名: Sub
+  exec(10, 5) = 5
+  exec(8.5, 2.5) = 6
+  exec(-3, 4) = -7
+
+--- ./plugin/libMul.so ---
+プラグイン名: Mul
+  exec(10, 5) = 50
+  exec(8.5, 2.5) = 21.25
+  exec(-3, 4) = -12
+
+=== プラグインシステム完了 ===
