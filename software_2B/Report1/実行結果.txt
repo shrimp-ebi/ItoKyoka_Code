@@ -1,0 +1,18 @@
+Q1:
+Hello World.
+
+
+Q2:
+$ ./Q2-1 
+Input  message: こんにちは
+Output message:
+こんにちは
+
+
+Q3:
+$ ./Q3-1 
+Input  message: おはよう
+Output message:
+おはよう
+おはよう
+おはよう
