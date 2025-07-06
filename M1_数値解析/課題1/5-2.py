@@ -136,8 +136,8 @@ def main():
     plt.grid(True)
     plt.legend()
     plt.title('RMS Error and KCR Bound vs. Noise Level')
-    plt.savefig('fig3_rms_with_kcr.png', dpi=300)
-    print("図を保存しました：fig3_rms_with_kcr.png")
+    plt.savefig('5-2.png', dpi=300)
+    print("図を保存しました：5-2.png")
     plt.show()
 
 if __name__ == '__main__':
