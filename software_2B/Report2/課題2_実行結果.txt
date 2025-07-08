@@ -1,0 +1,37 @@
+Q1:
+$ ./program1 
+obj1.message のアドレス: 0x561bd8c6deb0
+obj2.message のアドレス: 0x561bd8c6deb0
+Hello World.
+free(): double free detected in tcache 2
+中止 (コアダンプ)
+
+
+
+Q2:
+$ ./program1 
+obj1.message のアドレス: 0x557356b81eb0
+obj2.message のアドレス: 0x557356b81ed0
+Hello World.
+
+
+
+Q3:
+$ ./program3 
+=== 課題3 動作確認 ===
+msg1のメッセージ数: 3
+msg1の全メッセージ:
+0: Hello
+1: World
+2: C++
+msg1の1番目: World
+
+msg2の内容:
+0: 初期メッセージ
+1: 追加メッセージ
+
+msg3の内容:
+0: メッセージ1
+1: メッセージ2
+2: メッセージ3
+msg3のメッセージ数: 3

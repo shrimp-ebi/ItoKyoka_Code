@@ -10,7 +10,7 @@ int main(int argc, char *argv[]) {
     printf("obj2.message のアドレス: %p\n", obj2.getMessage());
 
     
-    std::cout << obj2 << std::endl;
+    std::cout << obj2 << std::endl;  // 出力: Hello World.(obj2のメッセージ)
 
     return 0;
 }
