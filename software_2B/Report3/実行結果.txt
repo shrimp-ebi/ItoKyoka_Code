@@ -1,0 +1,27 @@
+課題1
+[k233308@ydev00 static_library]$ ./test_static 
+=== 静的ライブラリ動作確認 ===
+0: 静的ライブラリのテスト
+1: Hello Static Library
+メッセージ数: 2
+
+
+課題2
+ライブラリのパスを設定してから実行
+$ export LD_LIBRARY_PATH=/path/to/library:$LD_LIBRARY_PATH
+./test_dynamic
+=== 動的ライブラリ動作確認 ===
+0: 動的ライブラリのテスト
+1: Hello Dynamic Library
+メッセージ数: 2
+LD_LIBRARY_PATHを設定する
+libmessage.soが存在するディレクトリをLD_LIBRARY_PATH環境変数に追加します。
+以下のコマンドを実行してください（/path/to/libraryをlibmessage.soがあるディレクトリに置き換えてください）：
+
+export LD_LIBRARY_PATH=/path/to/library:$LD_LIBRARY_PATH
+./test_dynamic
+
+
+
+課題3
+Q3のAnswer.txtに書いてある
