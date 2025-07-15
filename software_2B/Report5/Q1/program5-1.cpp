@@ -20,7 +20,7 @@ int main(int argc, char* argv[]) {
     DIR* dir = opendir(argv[1]);  // 指定したディレクトリをオープンする
     struct dirent* file;
     while ((file = readdir(dir)) != nullptr) {  // opendirで取得したDIR構造体からファイル名を順番に取得する
-        if (strcmp(file->d_name, ".") != 0 && strcmp(file->d_name, "..") != 0) {
+        if (strcmp(file->d_name, ".") != 0 && strcmp(file->d_name, "..") != 0) {  
             filenames.push_back(file->d_name);  // vectorに格納
 
             std::cout << file->d_name << std::endl;  // 即座に出力（授業資料参考）

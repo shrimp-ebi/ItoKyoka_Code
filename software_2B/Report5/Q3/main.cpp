@@ -8,7 +8,7 @@ int main() {
     
     // 1. 動的ライブラリをロード
     void* handle = dlopen("./libAdd.so", RTLD_LAZY);
-    if (handle == nullptr) {
+    if (handle == nullptr) { 
         std::cerr << "エラー: " << dlerror() << std::endl;
         return 1;
     }
