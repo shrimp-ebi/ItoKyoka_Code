@@ -6,6 +6,10 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 def apply_smoothing_differential_filter(img, kernel_size=5, sigma=2):
+    """
+    Compute smoothed image gradients using a simple difference filter on a blurred image.
+    Returns dx, dy as float64 arrays.
+    """
     img_f = img.astype(np.float32)
     blurred = cv2.GaussianBlur(img_f, (kernel_size, kernel_size), sigmaX=sigma).astype(np.float64)
     kx = np.array([[-1, 0, 1]], dtype=np.float64)
@@ -21,7 +25,6 @@ def estimate_by_gauss_newton2(img_input, img_transformed,
     theta = np.deg2rad(theta_init)
     scale = scale_init
     H, W = img_input.shape[:2]
-    # coordinate grid centered
     yv, xv = np.meshgrid(np.arange(H), np.arange(W), indexing='ij')
     x = xv - W/2; y = yv - H/2
     mask = (x**2 + y**2) <= (min(W, H)/2)**2
@@ -34,7 +37,7 @@ def estimate_by_gauss_newton2(img_input, img_transformed,
     cost_hist, delta_norm_hist = [], []
 
     for _ in range(max_iter):
-        # transform matrix and warp
+        # transform and warp
         a = scale * np.cos(theta); b = scale * np.sin(theta)
         M = np.array([[a, -b, 0],[b, a, 0],[0,0,1]], dtype=np.float64)
         M_inv = np.linalg.inv(M)
@@ -46,27 +49,34 @@ def estimate_by_gauss_newton2(img_input, img_transformed,
         valid = (xi>=0)&(xi<W)&(yi>=0)&(yi<H)
         fp = I_prime.flatten(); fp[valid] = I_org[yi[valid], xi[valid]]
         I_prime = fp.reshape(H, W)
-        # gradients and diff
+
+        # gradients and residual
         I_dx, I_dy = apply_smoothing_differential_filter(I_prime)
-        diff = (I_prime - I)
-        # derivatives wrt theta, scale
-        dth = -scale*(x*np.sin(theta) + y*np.cos(theta))
-        dsh =  x*np.cos(theta) - y*np.sin(theta)
-        # derivative wrt scale
-        dsg =  x*np.sin(theta) + y*np.cos(theta)
-        # gradient terms
-        A = (I_dx*dth + I_dy*dsh)[mask]
-        B = (I_dx*(x*np.cos(theta)-y*np.sin(theta)) + I_dy*(x*np.sin(theta)+y*np.cos(theta)))[mask]
+        diff = I_prime - I
+        
+        # partial derivatives
+        dx_dtheta = -scale*(x*np.sin(theta) + y*np.cos(theta))
+        dy_dtheta =  scale*(x*np.cos(theta) - y*np.sin(theta))
+        dx_dscale = x*np.cos(theta) - y*np.sin(theta)
+        dy_dscale = x*np.sin(theta) + y*np.cos(theta)
+
+        # Jacobian components
+        A = (I_dx*dx_dtheta + I_dy*dy_dtheta)[mask]
+        B = (I_dx*dx_dscale + I_dy*dy_dscale)[mask]
         r = diff[mask]
-        # gradient and Hessian approx
+
+        # gradient and Hessian approximation
         Jt = np.sum(r * A); Js = np.sum(r * B)
         Jtt = np.sum(A**2); Jss = np.sum(B**2); Jts = np.sum(A*B)
+        
         # cost
         cost = 0.5 * np.sum(r**2)
+
         # store histories
         theta_hist.append(theta); scale_hist.append(scale)
         grad_theta_hist.append(Jt); grad_scale_hist.append(Js)
         cost_hist.append(cost)
+
         # solve update
         Hm = np.array([[Jtt, Jts],[Jts, Jss]])
         g = np.array([Jt, Js])
@@ -75,6 +85,7 @@ def estimate_by_gauss_newton2(img_input, img_transformed,
         except np.linalg.LinAlgError:
             print("Singular Hessian; stopping.")
             break
+
         theta -= delta[0]; scale -= delta[1]
         delta_norm_hist.append(np.linalg.norm(delta))
         if np.linalg.norm(delta) < threshold:
@@ -101,20 +112,18 @@ def main():
      th_h, sc_h,
      gt_h, gs_h,
      cost_h, dn_h) = estimate_by_gauss_newton2(img_i, img_t, t0, s0)
+
     print(f"Estimated rotation (deg): {np.rad2deg(theta):.4f}")
     print(f"Estimated scale: {scale:.4f}")
 
-    # save parameter histories
+    # save histories
     it = np.arange(len(th_h))
     plt.figure(); plt.plot(it, np.rad2deg(th_h)); plt.xlabel('Iteration'); plt.ylabel('Theta (deg)'); plt.grid(); plt.savefig('theta_history.png')
-    plt.figure(); plt.plot(it, sc_h);               plt.xlabel('Iteration'); plt.ylabel('Scale'); plt.grid(); plt.savefig('scale_history.png')
-    # save gradients
+    plt.figure(); plt.plot(it, sc_h); plt.xlabel('Iteration'); plt.ylabel('Scale'); plt.grid(); plt.savefig('scale_history.png')
     plt.figure(); plt.plot(it, gt_h); plt.xlabel('Iteration'); plt.ylabel('Grad Theta'); plt.grid(); plt.savefig('grad_theta.png')
     plt.figure(); plt.plot(it, gs_h); plt.xlabel('Iteration'); plt.ylabel('Grad Scale'); plt.grid(); plt.savefig('grad_scale.png')
-    # save cost and delta norm
     plt.figure(); plt.plot(it, cost_h); plt.xlabel('Iteration'); plt.ylabel('Cost'); plt.grid(); plt.savefig('cost_history.png')
     plt.figure(); plt.plot(it, dn_h); plt.xlabel('Iteration'); plt.ylabel('Delta Norm'); plt.grid(); plt.savefig('delta_history.png')
-    # trajectory in parameter space
     plt.figure(); plt.plot(np.rad2deg(th_h), sc_h, marker='o'); plt.xlabel('Theta (deg)'); plt.ylabel('Scale'); plt.grid(); plt.savefig('trajectory.png')
 
     print("Saved: theta_history.png, scale_history.png, grad_theta.png, grad_scale.png, cost_history.png, delta_history.png, trajectory.png")
