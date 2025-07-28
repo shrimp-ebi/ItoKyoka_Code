@@ -61,6 +61,7 @@ def estimate_by_gauss_newton_method(img_input, img_output, *, scale_init=1, thet
     I = img_output
     theta_history = []
     scale_history = []
+    error_history = []
     H, W = I.shape[:2]
     y_coords, x_coords = np.meshgrid(np.arange(H), np.arange(W), indexing='ij')
     x_coords = x_coords - W / 2
@@ -106,8 +107,9 @@ def estimate_by_gauss_newton_method(img_input, img_output, *, scale_init=1, thet
         scale += delta_scale
         theta_history.append(np.rad2deg(theta))
         scale_history.append(scale)
+        error_history.append(objective_func_val)
         print(f"{i}, delta_theta:{delta_theta},\tdelta_scale:{delta_scale},\ttheta:{np.rad2deg(theta)},\tscale:{scale},\terror:{objective_func_val}")
-    return np.rad2deg(theta), scale, theta_history, scale_history, i
+    return np.rad2deg(theta), scale, theta_history, scale_history, error_history, i
 
 def main():
     # データ準備
@@ -144,7 +146,7 @@ def main():
     # cv2.waitKey(0)
     # cv2.destroyAllWindows()
     # ガウスニュートン法によりパラメータを推定
-    theta_est, scale_est, theta_history, scale_history, iteration = estimate_by_gauss_newton_method(img_input, img_output_cropped, 
+    theta_est, scale_est, theta_history, scale_history, error_history, iteration = estimate_by_gauss_newton_method(img_input, img_output_cropped, 
                                                                                         scale_init=scale_init, 
                                                                                         theta_init=theta_init_deg, 
                                                                                         threshold=threshold, 
@@ -202,18 +204,20 @@ def main():
     history_length = max(len(theta_history), len(scale_history))
     theta_history = np.pad(theta_history, (0, history_length - len(theta_history)))
     scale_history = np.pad(scale_history, (0, history_length - len(scale_history)))
+    error_history = np.pad(error_history, (0, history_length - len(error_history)))
     history_df = pd.DataFrame({
         "theta_history": theta_history,
-        "scale_history": scale_history
+        "scale_history": scale_history,
+        "error_history": error_history
     })
     history_df.to_csv(os.path.join(output_dir, "history.csv"), index=False, encoding="utf-8-sig")
 
 
     # 目的関数を可視化
-    # pof.visualize_objective_function(img_input_cropped, img_output_cropped,
-    #                                  theta_max=10,
-    #                                  theta_min=0,
-    #                                  sigma_max=2,
-    #                                  simga_min=0.1)
+    pof.visualize_objective_function(img_input_cropped, img_output_cropped,
+                                     theta_max=10,
+                                     theta_min=0,
+                                     scale_max=2,
+                                     scale_min=0.1)
 if __name__ == "__main__":
     main()

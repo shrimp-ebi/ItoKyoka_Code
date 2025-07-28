@@ -64,68 +64,57 @@ def visualize_objective_function(img_input, img_output, theta_min=0, theta_max=1
                 theta_values=theta_values,
                 scale_values=scale_values)
 
-
-def visualize_chages_in_est():
-    # --- 1. データを読み込み ---
-    # サーフェスデータ（Theta, Scale, J_values）
-    data = np.load("output/J_surface_data.npz")
+# 目的関数の曲面上での推定値の変化を描画
+def visualize_chages_in_est(surface_data_path, history_path):
+    # サーフェスデータ（Theta, Scale, J_values）の読み込み
+    data = np.load(surface_data_path)
     Theta = data["Theta"]
     Scale = data["Scale"]
     J_values = data["J_values"]
-
-    # history.csv（thetaとscaleの推定値履歴）
-    history = pd.read_csv("output/Lenna.bmp_true_s1.2_t45.0_init_s1.2_t40.0/history.csv")  # カラム名: theta, scale, (Jなど)
+    # 推定履歴の読み込み
+    history = pd.read_csv(history_path) 
     theta_hist = history["theta_history"].values
     scale_hist = history["scale_history"].values
-    # --- 2. 3Dプロット ---
+    error_hist = history["error_history"].values
+    # グラフ準備
     fig = plt.figure(figsize=(10, 7))
     ax = fig.add_subplot(111, projection='3d')
-
-    # サーフェス描画
-    surf = ax.plot_surface(Theta, Scale, J_values, cmap='viridis', edgecolor='none', alpha=0.8)
-
-    # --- 3. history の線を重ね描き ---
-    # history の J値を補間または計算する場合
-    # (ここでは J_values のグリッドを使い、最も近い点を選択する簡易法)
-    J_hist = []
-    for t, s in zip(theta_hist, scale_hist):
-        # Theta, Scale から最も近いインデックスを取得
-        i = (np.abs(data["scale_values"] - s)).argmin()
-        j = (np.abs(data["theta_values"] - t)).argmin()
-        J_hist.append(J_values[i, j])
-    J_hist = np.array(J_hist)
-
-    # 推定値履歴を赤い線で描く
-    ax.plot(theta_hist, scale_hist, J_hist, color='red', marker='o', label='History')
-
-    # --- 4. 軸ラベルとタイトル ---
+    # 曲面描画
+    surf = ax.plot_surface(Theta, Scale, J_values, cmap='viridis', edgecolor='none', alpha=0.5)
+    # ax.plot_wireframe(Theta, Scale, J_values, color='gray', linewidth=0.5, alpha=1)
+    # 推定値描画
+    ax.plot(theta_hist, scale_hist, error_hist,
+            color='red', marker='o', label='History (Error)')
+    # ラベル設定
     ax.set_xlabel('Theta (degrees)')
     ax.set_ylabel('Scale')
     ax.set_zlabel('Objective Function J')
     ax.set_title('3D Plot of J(Theta, Scale) with History')
-    fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10, label='J')
 
     ax.legend()
     plt.show()
 
 def main():
-    scale_true = 1.2
-    theta_true_deg = 45 
-    img_path = "input/color/Lenna.bmp"
-    img_input = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-    img_input_cropped = st.crop_img_into_circle(img_input)
-    M = st.compute_M(scale_true, np.deg2rad(theta_true_deg), 0, 0)
-    img_output = st.apply_similarity_transform_reverse(img_input, M)
-    img_output_cropped = st.crop_img_into_circle(img_output)
-    # 目的関数を可視化
-    visualize_objective_function(img_input_cropped, img_output_cropped,
-                                     theta_min=35,
-                                     theta_max=55,
-                                     theta_step=1,
-                                     scale_min=1,
-                                     scale_max=1.4,
-                                     scale_step=0.05)
-    # visualize_chages_in_est()
+    # scale_true = 1.2
+    # theta_true_deg = 45 
+    # img_path = "input/color/Lenna.bmp"
+    # img_input = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+    # img_input_cropped = st.crop_img_into_circle(img_input)
+    # M = st.compute_M(scale_true, np.deg2rad(theta_true_deg), 0, 0)
+    # img_output = st.apply_similarity_transform_reverse(img_input, M)
+    # img_output_cropped = st.crop_img_into_circle(img_output)
+    # # 目的関数を可視化
+    # visualize_objective_function(img_input_cropped, img_output_cropped,
+    #                                  theta_min=35,
+    #                                  theta_max=55,
+    #                                  theta_step=1,
+    #                                  scale_min=1,
+    #                                  scale_max=1.4,
+    #                                  scale_step=0.05)
+    
+    surface_data_path = "output/J_surface_data.npz"
+    history_path = "output\Lenna.bmp_true_s1.2_t45.0_init_s1.1_t45.0\history.csv"
+    visualize_chages_in_est(surface_data_path, history_path)
                                      
 
 if __name__ == "__main__":
