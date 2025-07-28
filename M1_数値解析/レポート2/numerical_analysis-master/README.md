@@ -1,0 +1,8 @@
+# expriment_gauss_newton_method.py
+入力画像と相似変換によって変換した出力画像から回転角度θとスケールパラメータsをガウス・ニュートン法によって推定するプログラム。実験に使用する。出力結果はoutputフォルダに保存される。
+
+# plot_objective_function.py
+目的関数の曲面を描画するプログラム。追加実験用。必要に応じて、expriment_gauss_newton_method.pyから利用する。
+
+# similarity_transfrom.py
+相似変換するプログラム。expriment_gauss_newton_method.pyの内部で使われている。直接実行はしない。
