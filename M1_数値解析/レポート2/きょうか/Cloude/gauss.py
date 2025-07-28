@@ -1,326 +1,337 @@
 """
 ガウス・ニュートン法による相似変換パラメータ推定プログラム
-入力画像と出力画像から回転角度θとスケールsを推定します。
+入力画像と出力画像から回転角度θとスケールsを推定する
 
 使用方法:
-python gauss.py --input Fuji.jpg --output out-Fuji-gray.png --theta_init 10 --scale_init 1.2
-
-初期値を変える場合：
-python gauss.py --input Fuji.jpg --output out-Fuji-gray.png --theta_init 10 --scale_init 1.2
-"""
-
-"""
-ガウス・ニュートン法による相似変換パラメータ推定プログラム
-入力画像と出力画像から回転角度θとスケールsを推定します。
-
-使用方法:
-python gauss.py --input input.jpg --output output.png --theta_init 0 --scale_init 1
+python gauss.py -i input.jpg -o output.png --init_theta 0 --init_scale 1
 """
 
 import numpy as np
 import cv2
 import matplotlib
-matplotlib.use('Agg')  # GUIを使わないバックエンドを指定
+matplotlib.use('Agg')  # バックエンドを非表示モードに設定
 import matplotlib.pyplot as plt
 import argparse
-from pathlib import Path
+from matplotlib import cm
+import os
 
 class GaussNewtonEstimator:
-    def __init__(self, img_in, img_out, theta_init=0, scale_init=1):
+    def __init__(self, img_in, img_out, sigma=1.0):
         """
         Parameters:
-        -----------
-        img_in : numpy.ndarray
-            入力画像（グレースケール）
-        img_out : numpy.ndarray
-            出力画像（グレースケール）
-        theta_init : float
-            回転角度の初期値（度数法）
-        scale_init : float
-            スケールの初期値
+        img_in: 入力画像（グレースケール）
+        img_out: 出力画像（グレースケール）
+        sigma: ガウシアンフィルタのσ値
         """
         self.img_in = img_in.astype(np.float64)
         self.img_out = img_out.astype(np.float64)
-        self.h, self.w = img_in.shape
+        self.height, self.width = img_in.shape
         
         # 画像中心
-        self.cx = self.w / 2
-        self.cy = self.h / 2
+        self.cx = self.width / 2.0
+        self.cy = self.height / 2.0
         
-        # パラメータ初期化
-        self.theta = np.deg2rad(theta_init)
-        self.s = scale_init
+        # 使用する領域（円内）のピクセル座標を事前計算
+        self.radius = min(self.width, self.height) / 2.0
+        self.X, self.Y = self._get_valid_pixels()
         
-        # 収束履歴
+        # ガウシアン微分フィルタの作成
+        self.gaussian_x, self.gaussian_y = self._create_gaussian_derivative_filters(sigma)
+        
+        # 記録用リスト
         self.theta_history = []
-        self.s_history = []
+        self.scale_history = []
         self.error_history = []
         self.J_theta_history = []
         self.J_s_history = []
+        self.delta_theta_history = []
+        self.delta_s_history = []
         
-        # 有効ピクセルのマスクと座標を事前計算
-        self._prepare_valid_pixels()
-        
-        # ガウシアンフィルタの準備
-        self._prepare_gaussian_filters()
+    def _get_valid_pixels(self):
+        """円内の有効なピクセル座標を取得"""
+        X = []
+        Y = []
+        for y in range(self.height):
+            for x in range(self.width):
+                distance = np.sqrt((x - self.cx)**2 + (y - self.cy)**2)
+                if distance <= self.radius:
+                    X.append(x)
+                    Y.append(y)
+        return np.array(X), np.array(Y)
     
-    def _prepare_valid_pixels(self):
-        """画像中心から半径内の有効ピクセルを計算"""
-        radius = min(self.w, self.h) / 2
-        y, x = np.meshgrid(range(self.h), range(self.w), indexing='ij')
-        
-        # 中心からの距離
-        dist = np.sqrt((x - self.cx)**2 + (y - self.cy)**2)
-        
-        # 有効ピクセルのマスク
-        self.valid_mask = dist <= radius
-        
-        # 有効ピクセルの座標
-        self.valid_pixels = np.column_stack(np.where(self.valid_mask))
-        self.n_valid = len(self.valid_pixels)
-    
-    def _prepare_gaussian_filters(self, sigma=1.0):
-        """平滑微分用のガウシアンフィルタを準備"""
-        size = int(1 + 4 * sigma)
-        if size % 2 == 0:
-            size += 1
-        
-        x = np.arange(size) - size // 2
-        y = np.arange(size) - size // 2
-        X, Y = np.meshgrid(x, y)
-        
-        # ガウシアン関数
-        G = np.exp(-(X**2 + Y**2) / (2 * sigma**2))
-        G = G / (2 * np.pi * sigma**2)
-        
-        # x方向、y方向の微分
-        self.Gx = -X / sigma**2 * G
-        self.Gy = -Y / sigma**2 * G
-    
-    def _compute_derivatives(self):
-        """画像の平滑微分を計算"""
-        # 出力画像の平滑微分
-        self.Ix = cv2.filter2D(self.img_out, -1, self.Gx)
-        self.Iy = cv2.filter2D(self.img_out, -1, self.Gy)
-    
-    def _transform_point(self, x, y):
-        """点(x,y)を現在のパラメータで変換（Yu-gauss.pyと同じ座標系）"""
-        # 中心を原点に
-        x_c = x - self.cx
-        y_c = self.cy - y  # Y座標を反転（OpenCV座標系）
-        
-        # 相似変換
-        x_new = self.s * (x_c * np.cos(self.theta) - y_c * np.sin(self.theta))
-        y_new = -self.s * (x_c * np.sin(self.theta) + y_c * np.cos(self.theta))  # 負の符号
-        
-        # 元の座標系に戻す
-        return x_new + self.cx, y_new + self.cy
-    
-    def _compute_jacobian(self):
-        """目的関数の1階・2階微分を計算"""
-        J_theta = 0
-        J_s = 0
-        J_theta_theta = 0
-        J_s_s = 0
-        J_theta_s = 0
-        error = 0
-        
-        for i in range(self.n_valid):
-            y, x = self.valid_pixels[i]
+    def _create_gaussian_derivative_filters(self, sigma):
+        """ガウシアン微分フィルタを作成"""
+        kernel_size = int(1 + 4 * sigma)
+        if kernel_size % 2 == 0:
+            kernel_size += 1
             
-            # 変換後の座標
-            x_t, y_t = self._transform_point(x, y)
-            
-            # 画像範囲内かチェック
-            if 0 <= x_t < self.w and 0 <= y_t < self.h:
-                # バイリニア補間
-                x_int = int(x_t)
-                y_int = int(y_t)
-                dx = x_t - x_int
-                dy = y_t - y_int
+        gaussian_x = np.zeros((kernel_size, kernel_size))
+        gaussian_y = np.zeros((kernel_size, kernel_size))
+        
+        center = kernel_size // 2
+        coef = 1 / (2 * np.pi * sigma**2)
+        
+        for y in range(kernel_size):
+            for x in range(kernel_size):
+                offset_x = x - center
+                offset_y = y - center
+                exp_term = np.exp(-(offset_x**2 + offset_y**2) / (2 * sigma**2))
                 
-                if x_int + 1 < self.w and y_int + 1 < self.h:
-                    # 画素値の補間
-                    I_out = (1-dx)*(1-dy)*self.img_out[y_int, x_int] + \
-                            dx*(1-dy)*self.img_out[y_int, x_int+1] + \
-                            (1-dx)*dy*self.img_out[y_int+1, x_int] + \
-                            dx*dy*self.img_out[y_int+1, x_int+1]
-                    
-                    # 微分値の補間
-                    Ix_val = (1-dx)*(1-dy)*self.Ix[y_int, x_int] + \
-                             dx*(1-dy)*self.Ix[y_int, x_int+1] + \
-                             (1-dx)*dy*self.Ix[y_int+1, x_int] + \
-                             dx*dy*self.Ix[y_int+1, x_int+1]
-                    
-                    Iy_val = (1-dx)*(1-dy)*self.Iy[y_int, x_int] + \
-                             dx*(1-dy)*self.Iy[y_int, x_int+1] + \
-                             (1-dx)*dy*self.Iy[y_int+1, x_int] + \
-                             dx*dy*self.Iy[y_int+1, x_int+1]
-                else:
-                    continue
-            else:
-                continue
-            
-            # 入力画像の画素値
-            I_in = self.img_in[y, x]
-            
-            # 誤差
-            diff = I_out - I_in
-            
-            # 座標の微分（Yu-gauss.pyと同じ座標系）
-            x_c = x - self.cx
-            y_c = self.cy - y  # Y座標を反転
-            
-            # θに関する微分
-            dx_dtheta = self.s * (-(x_c) * np.sin(self.theta) - y_c * np.cos(self.theta))
-            dy_dtheta = self.s * (x_c * np.cos(self.theta) - y_c * np.sin(self.theta))
-            
-            # sに関する微分
-            dx_ds = x_c * np.cos(self.theta) - y_c * np.sin(self.theta)
-            dy_ds = x_c * np.sin(self.theta) + y_c * np.cos(self.theta)
-            
-            # 1階微分
-            dI_dtheta = Ix_val * dx_dtheta + Iy_val * dy_dtheta
-            dI_ds = Ix_val * dx_ds + Iy_val * dy_ds
-            
-            J_theta += diff * dI_dtheta
-            J_s += diff * dI_ds
-            
-            # 2階微分（ガウス・ニュートン近似）
-            J_theta_theta += dI_dtheta * dI_dtheta
-            J_s_s += dI_ds * dI_ds
-            J_theta_s += dI_dtheta * dI_ds
-            
-            # 誤差の累積
-            error += 0.5 * diff * diff
-        
-        return J_theta, J_s, J_theta_theta, J_s_s, J_theta_s, error
+                gaussian_x[y, x] = -coef * (-offset_x / sigma**2) * exp_term
+                gaussian_y[y, x] = -coef * (-offset_y / sigma**2) * exp_term
+                
+        return gaussian_x, gaussian_y
     
-    def optimize(self, max_iter=100, threshold=1e-5):
-        """ガウス・ニュートン法による最適化"""
-        print(f"初期値: θ={np.rad2deg(self.theta):.2f}°, s={self.s:.4f}")
+    def _compute_transformed_coords(self, x, y, theta, s):
+        """座標(x,y)を相似変換"""
+        x_centered = x - self.cx
+        y_centered = y - self.cy
         
-        # 平滑微分の計算
-        self._compute_derivatives()
+        x_transformed = s * (x_centered * np.cos(theta) - y_centered * np.sin(theta)) + self.cx
+        y_transformed = s * (x_centered * np.sin(theta) + y_centered * np.cos(theta)) + self.cy
         
-        for i in range(max_iter):
-            # ヤコビアンの計算
-            J_theta, J_s, J_theta_theta, J_s_s, J_theta_s, error = self._compute_jacobian()
+        return x_transformed, y_transformed
+    
+    def _interpolate_image(self, img, x, y):
+        """バイリニア補間"""
+        h, w = img.shape
+        
+        # 境界チェック
+        if x < 0 or x >= w - 1 or y < 0 or y >= h - 1:
+            return 0
+        
+        # 整数部分と小数部分
+        x0, y0 = int(x), int(y)
+        x1, y1 = x0 + 1, y0 + 1
+        dx, dy = x - x0, y - y0
+        
+        # バイリニア補間
+        value = (1 - dx) * (1 - dy) * img[y0, x0] + \
+                dx * (1 - dy) * img[y0, x1] + \
+                (1 - dx) * dy * img[y1, x0] + \
+                dx * dy * img[y1, x1]
+                
+        return value
+    
+    def estimate(self, init_theta=0, init_s=1.0, max_iter=100, threshold=1e-5, 
+                 threshold_theta=None, threshold_scale=None):
+        """
+        ガウス・ニュートン法でパラメータを推定
+        
+        Parameters:
+        init_theta: 初期回転角度（ラジアン）
+        init_s: 初期スケール
+        max_iter: 最大反復回数
+        threshold: 収束判定閾値（デフォルト）
+        threshold_theta: 回転角度の収束判定閾値（度）
+        threshold_scale: スケールの収束判定閾値
+        """
+        theta = init_theta
+        s = init_s
+        
+        # 個別の閾値が指定されていない場合はデフォルトを使用
+        if threshold_theta is None:
+            threshold_theta = threshold
+        else:
+            threshold_theta = np.deg2rad(threshold_theta)  # 度からラジアンに変換
+        
+        if threshold_scale is None:
+            threshold_scale = threshold
+        
+        print(f"初期値: θ={np.rad2deg(theta):.2f}度, s={s:.4f}")
+        
+        for iteration in range(max_iter):
+            # 1階微分と2階微分の初期化
+            J_theta = 0
+            J_theta_theta = 0
+            J_s = 0
+            J_s_s = 0
+            J_theta_s = 0
+            error = 0
             
-            # 履歴の保存
-            self.theta_history.append(np.rad2deg(self.theta))
-            self.s_history.append(self.s)
+            # 出力画像の平滑微分画像を作成
+            Ix = cv2.filter2D(self.img_out, -1, self.gaussian_x)
+            Iy = cv2.filter2D(self.img_out, -1, self.gaussian_y)
+            
+            # 各ピクセルでの計算
+            for i in range(len(self.X)):
+                x, y = self.X[i], self.Y[i]
+                
+                # 変換後の座標
+                x_transformed, y_transformed = self._compute_transformed_coords(x, y, theta, s)
+                
+                # 出力画像の値（補間）
+                I_out = self._interpolate_image(self.img_out, x_transformed, y_transformed)
+                I_in = self.img_in[int(y), int(x)]
+                
+                # 画像勾配（補間）
+                Ix_val = self._interpolate_image(Ix, x_transformed, y_transformed)
+                Iy_val = self._interpolate_image(Iy, x_transformed, y_transformed)
+                
+                # 座標の微分
+                x_c = x - self.cx
+                y_c = y - self.cy
+                
+                # θに関する微分
+                dx_dtheta = -s * (x_c * np.sin(theta) + y_c * np.cos(theta))
+                dy_dtheta = s * (x_c * np.cos(theta) - y_c * np.sin(theta))
+                
+                # sに関する微分
+                dx_ds = x_c * np.cos(theta) - y_c * np.sin(theta)
+                dy_ds = x_c * np.sin(theta) + y_c * np.cos(theta)
+                
+                # 誤差
+                diff = I_out - I_in
+                error += 0.5 * diff**2
+                
+                # 1階微分
+                grad_theta = Ix_val * dx_dtheta + Iy_val * dy_dtheta
+                grad_s = Ix_val * dx_ds + Iy_val * dy_ds
+                
+                J_theta += diff * grad_theta
+                J_s += diff * grad_s
+                
+                # 2階微分（ガウス・ニュートン近似）
+                J_theta_theta += grad_theta**2
+                J_s_s += grad_s**2
+                J_theta_s += grad_theta * grad_s
+            
+            # ヘッセ行列と勾配ベクトル
+            H = np.array([[J_theta_theta, J_theta_s],
+                         [J_theta_s, J_s_s]])
+            g = np.array([J_theta, J_s])
+            
+            # パラメータ更新量
+            try:
+                delta = np.linalg.solve(H, g)
+                delta_theta, delta_s = delta[0], delta[1]
+            except np.linalg.LinAlgError:
+                print("警告: ヘッセ行列が特異です")
+                break
+            
+            # 記録
+            self.theta_history.append(np.rad2deg(theta))
+            self.scale_history.append(s)
             self.error_history.append(error)
             self.J_theta_history.append(J_theta)
             self.J_s_history.append(J_s)
-            
-            # ヘッセ行列とグラディエントベクトル
-            H = np.array([[J_theta_theta, J_theta_s],
-                          [J_theta_s, J_s_s]])
-            g = np.array([J_theta, J_s])
-            
-            # パラメータ更新量の計算
-            try:
-                delta = np.linalg.solve(H, g)
-            except np.linalg.LinAlgError:
-                print("ヘッセ行列が特異です")
-                break
-            
-            delta_theta = delta[0]
-            delta_s = delta[1]
-            
-            # 収束判定
-            if abs(delta_theta) < threshold and abs(delta_s) < threshold:
-                print(f"収束しました（反復回数: {i+1}）")
-                break
+            self.delta_theta_history.append(np.rad2deg(delta_theta))
+            self.delta_s_history.append(delta_s)
             
             # パラメータ更新
-            self.theta -= delta_theta
-            self.s -= delta_s
+            theta -= delta_theta
+            s -= delta_s
             
-            print(f"反復 {i+1}: θ={np.rad2deg(self.theta):.4f}°, s={self.s:.4f}, "
-                  f"誤差={error:.2f}, |Δθ|={abs(delta_theta):.2e}, |Δs|={abs(delta_s):.2e}")
+            print(f"反復 {iteration+1}: θ={np.rad2deg(theta):.4f}度, s={s:.6f}, "
+                  f"誤差={error:.2f}, Δθ={np.rad2deg(delta_theta):.6f}, Δs={delta_s:.6f}")
+            
+            # 収束判定
+            if abs(delta_theta) < threshold_theta and abs(delta_s) < threshold_scale:
+                print(f"\n収束しました（反復回数: {iteration+1}）")
+                print(f"収束基準: |Δθ| < {np.rad2deg(threshold_theta):.6f}度, |Δs| < {threshold_scale:.6f}")
+                break
+                
+        if iteration == max_iter - 1:
+            print(f"\n最大反復回数 {max_iter} に到達しました")
+            print(f"最終更新量: Δθ={np.rad2deg(delta_theta):.6f}度, Δs={delta_s:.6f}")
+            print(f"収束基準: |Δθ| < {np.rad2deg(threshold_theta):.6f}度, |Δs| < {threshold_scale:.6f}")
         
-        print(f"\n推定結果: θ={np.rad2deg(self.theta):.4f}°, s={self.s:.4f}")
+        self.final_theta = theta
+        self.final_s = s
         
-        return self.theta, self.s
+        return theta, s
     
-    def plot_convergence(self, save_path='convergence_plots.png'):
-        """収束過程のグラフを作成"""
-        fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+    def save_convergence_plots(self, save_dir="results"):
+        """収束過程のグラフを保存"""
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+            
+        iterations = range(len(self.theta_history))
         
-        # θの推定過程
-        ax = axes[0, 0]
-        ax.plot(self.theta_history, 'b-', linewidth=2)
-        ax.set_xlabel('Iteration')
-        ax.set_ylabel('θ [degrees]')
-        ax.set_title('Rotation Angle Estimation')
-        ax.grid(True)
+        # 1. パラメータの推定過程
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
         
-        # sの推定過程
-        ax = axes[0, 1]
-        ax.plot(self.s_history, 'r-', linewidth=2)
-        ax.set_xlabel('Iteration')
-        ax.set_ylabel('Scale')
-        ax.set_title('Scale Parameter Estimation')
-        ax.grid(True)
+        ax1.plot(iterations, self.theta_history, 'b-', linewidth=2)
+        ax1.set_xlabel('反復回数')
+        ax1.set_ylabel('回転角度 θ [度]')
+        ax1.set_title('回転角度の収束過程')
+        ax1.grid(True, alpha=0.3)
         
-        # 誤差の推移
-        ax = axes[0, 2]
-        ax.semilogy(self.error_history, 'g-', linewidth=2)
-        ax.set_xlabel('Iteration')
-        ax.set_ylabel('Error')
-        ax.set_title('Total Error')
-        ax.grid(True)
-        
-        # θの1階微分
-        ax = axes[1, 0]
-        ax.plot(self.J_theta_history, 'b--', linewidth=2)
-        ax.set_xlabel('Iteration')
-        ax.set_ylabel('∂J/∂θ')
-        ax.set_title('Gradient w.r.t. θ')
-        ax.grid(True)
-        ax.axhline(y=0, color='k', linestyle='-', alpha=0.3)
-        
-        # sの1階微分
-        ax = axes[1, 1]
-        ax.plot(self.J_s_history, 'r--', linewidth=2)
-        ax.set_xlabel('Iteration')
-        ax.set_ylabel('∂J/∂s')
-        ax.set_title('Gradient w.r.t. s')
-        ax.grid(True)
-        ax.axhline(y=0, color='k', linestyle='-', alpha=0.3)
-        
-        # パラメータの変化（Δθ, Δs）
-        ax = axes[1, 2]
-        if len(self.theta_history) > 1:
-            delta_theta = np.diff(self.theta_history)
-            delta_s = np.diff(self.s_history)
-            ax.semilogy(np.abs(delta_theta), 'b-', label='|Δθ|', linewidth=2)
-            ax.semilogy(np.abs(delta_s), 'r-', label='|Δs|', linewidth=2)
-            ax.set_xlabel('Iteration')
-            ax.set_ylabel('Parameter Change')
-            ax.set_title('Convergence of Parameters')
-            ax.legend()
-            ax.grid(True)
+        ax2.plot(iterations, self.scale_history, 'r-', linewidth=2)
+        ax2.set_xlabel('反復回数')
+        ax2.set_ylabel('スケール s')
+        ax2.set_title('スケールの収束過程')
+        ax2.grid(True, alpha=0.3)
         
         plt.tight_layout()
-        plt.savefig(save_path, dpi=150)
-        plt.close()  # メモリ解放
-        print(f"\n収束グラフを '{save_path}' に保存しました")
+        plt.savefig(os.path.join(save_dir, 'parameter_convergence.png'), dpi=150)
+        plt.close()
+        
+        # 2. 1階微分（勾配）の変化
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+        
+        ax1.plot(iterations, self.J_theta_history, 'b-', linewidth=2)
+        ax1.set_xlabel('反復回数')
+        ax1.set_ylabel('∂J/∂θ')
+        ax1.set_title('目的関数のθに関する1階微分')
+        ax1.grid(True, alpha=0.3)
+        ax1.axhline(y=0, color='k', linestyle='--', alpha=0.5)
+        
+        ax2.plot(iterations, self.J_s_history, 'r-', linewidth=2)
+        ax2.set_xlabel('反復回数')
+        ax2.set_ylabel('∂J/∂s')
+        ax2.set_title('目的関数のsに関する1階微分')
+        ax2.grid(True, alpha=0.3)
+        ax2.axhline(y=0, color='k', linestyle='--', alpha=0.5)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_dir, 'gradient_convergence.png'), dpi=150)
+        plt.close()
+        
+        # 3. パラメータ更新量の変化
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+        
+        ax1.semilogy(iterations, np.abs(self.delta_theta_history), 'b-', linewidth=2)
+        ax1.set_xlabel('反復回数')
+        ax1.set_ylabel('|Δθ| [度]（対数スケール）')
+        ax1.set_title('回転角度の更新量')
+        ax1.grid(True, alpha=0.3)
+        
+        ax2.semilogy(iterations, np.abs(self.delta_s_history), 'r-', linewidth=2)
+        ax2.set_xlabel('反復回数')
+        ax2.set_ylabel('|Δs|（対数スケール）')
+        ax2.set_title('スケールの更新量')
+        ax2.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_dir, 'delta_convergence.png'), dpi=150)
+        plt.close()
+        
+        # 4. 誤差の変化
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.plot(iterations, self.error_history, 'g-', linewidth=2)
+        ax.set_xlabel('反復回数')
+        ax.set_ylabel('目的関数 J')
+        ax.set_title('目的関数（誤差）の収束過程')
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_dir, 'error_convergence.png'), dpi=150)
+        plt.close()
+        
+        print(f"\nグラフを {save_dir} ディレクトリに保存しました")
 
 def main():
     parser = argparse.ArgumentParser(description='ガウス・ニュートン法による相似変換パラメータ推定')
-    parser.add_argument('--input', '-i', type=str, default='in_shrimp.png',
-                        help='入力画像ファイル名')
-    parser.add_argument('--output', '-o', type=str, default='out_shrimp.png',
-                        help='出力画像ファイル名')
-    parser.add_argument('--theta_init', type=float, default=0,
-                        help='回転角度の初期値（度数法）')
-    parser.add_argument('--scale_init', type=float, default=1,
-                        help='スケールの初期値')
-    parser.add_argument('--max_iter', type=int, default=100,
-                        help='最大反復回数')
+    parser.add_argument('-i', '--input', required=True, help='入力画像ファイル名')
+    parser.add_argument('-o', '--output', required=True, help='出力画像ファイル名')
+    parser.add_argument('--init_theta', type=float, default=0, help='初期回転角度（度）')
+    parser.add_argument('--init_scale', type=float, default=1.0, help='初期スケール')
+    parser.add_argument('--max_iter', type=int, default=100, help='最大反復回数')
+    parser.add_argument('--threshold', type=float, default=1e-5, help='収束判定閾値')
+    parser.add_argument('--threshold_theta', type=float, default=None, help='回転角度の収束判定閾値（度）')
+    parser.add_argument('--threshold_scale', type=float, default=None, help='スケールの収束判定閾値')
+    parser.add_argument('--save_dir', default='results', help='結果保存ディレクトリ')
+    parser.add_argument('--no_display', action='store_true', help='画像を表示しない')
     
     args = parser.parse_args()
     
@@ -335,27 +346,32 @@ def main():
     print(f"入力画像: {args.input} (サイズ: {img_in.shape})")
     print(f"出力画像: {args.output} (サイズ: {img_out.shape})")
     
-    # 推定器の初期化
-    estimator = GaussNewtonEstimator(img_in, img_out, 
-                                     theta_init=args.theta_init,
-                                     scale_init=args.scale_init)
+    # 推定器の作成
+    estimator = GaussNewtonEstimator(img_in, img_out)
     
-    # 最適化の実行
-    theta_est, s_est = estimator.optimize(max_iter=args.max_iter)
+    # パラメータ推定
+    theta_rad = np.deg2rad(args.init_theta)
     
-    # 収束グラフの作成
-    estimator.plot_convergence()
+    # 個別の閾値設定
+    threshold_theta = args.threshold_theta
+    threshold_scale = args.threshold_scale
     
-    # 結果をCSVに保存（オプション）
-    import csv
-    with open('estimation_history.csv', 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(['iteration', 'theta', 'scale', 'error', 'J_theta', 'J_s'])
-        for i in range(len(estimator.theta_history)):
-            writer.writerow([i, estimator.theta_history[i], estimator.s_history[i],
-                           estimator.error_history[i], estimator.J_theta_history[i],
-                           estimator.J_s_history[i]])
-    print("\n推定履歴を 'estimation_history.csv' に保存しました")
+    theta_est, s_est = estimator.estimate(
+        init_theta=theta_rad,
+        init_s=args.init_scale,
+        max_iter=args.max_iter,
+        threshold=args.threshold,
+        threshold_theta=threshold_theta,
+        threshold_scale=threshold_scale
+    )
+    
+    print(f"\n推定結果:")
+    print(f"  回転角度: {np.rad2deg(theta_est):.4f} 度")
+    print(f"  スケール: {s_est:.6f}")
+    
+    # グラフの保存
+    estimator.save_convergence_plots(args.save_dir)
 
 if __name__ == '__main__':
     main()
+    
