@@ -51,7 +51,7 @@ def apply_similarity_transform_reverse(img, M):
         for x_dst in range(dst.shape[1]):
             x_org, y_org, _ = M_inv @ np.array([x_dst-x_center, y_dst-y_center, 1])
             x_org, y_org = int(round(x_org+x_center)), int(round(y_org+y_center))
-            if 0 < x_org < w and 0 < y_org < h:
+            if 0 <= x_org < w and 0 < y_org < h:
                 dst[y_dst][x_dst] = img[y_org][x_org]
     return dst 
 

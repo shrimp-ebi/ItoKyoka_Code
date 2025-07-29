@@ -231,6 +231,174 @@ def main():
     plt.savefig(os.path.join(output_dir, "objective_function_history.png"), dpi=300)
     plt.close()
 
+    # 新規追加: 回転角度に対する目的関数の変化（真値中心）
+    theta_range = np.linspace(theta_true_deg - 10, theta_true_deg + 10, 100)
+    J_theta_range = []
+    
+    for theta_test in theta_range:
+        M_test = st.compute_M(scale_true, np.deg2rad(theta_test), 0, 0)
+        img_test = st.apply_similarity_transform_reverse(img_input, M_test)
+        img_test_cropped = st.crop_img_into_circle(img_test)
+        J_test = 0.5 * np.sum((img_test_cropped - img_output_cropped) ** 2)
+        J_theta_range.append(J_test)
+    
+    plt.figure(figsize=(8, 5))
+    plt.plot(theta_range, J_theta_range, 'b-', linewidth=2, label='目的関数J')
+    plt.axvline(x=theta_true_deg, color='r', linestyle='--', linewidth=2, label=f'真値 {theta_true_deg}°')
+    plt.axvline(x=theta_est, color='g', linestyle=':', linewidth=2, label=f'推定値 {theta_est:.2f}°')
+    plt.title("回転角度θに対する目的関数Jの変化")
+    plt.xlabel("回転角度θ（度）")
+    plt.ylabel("目的関数J")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "objective_vs_theta.png"), dpi=300)
+    plt.close()
+
+    # 新規追加: 回転角度θに対する目的関数の一階微分 ∂J/∂θ
+    theta_range_grad = np.linspace(theta_true_deg - 10, theta_true_deg + 10, 100)
+    dJ_dtheta_range = []
+    
+    for theta_test in theta_range_grad:
+        M_test = st.compute_M(scale_true, np.deg2rad(theta_test), 0, 0)
+        I_prime_test = st.apply_similarity_transform_reverse(img_input, M_test)
+        I_prime_test = st.crop_img_into_circle(I_prime_test)
+        
+        I_prime_dx, I_prime_dy = apply_smoothing_differrential_filter(I_prime_test, kernel_size=kernel_size, sigma=sigma)
+        
+        H, W = I_prime_test.shape[:2]
+        y_coords, x_coords = np.meshgrid(np.arange(H), np.arange(W), indexing='ij')
+        x_coords = x_coords - W / 2
+        y_coords = y_coords - H / 2
+        
+        dxprime_dtheta = -scale_true * (x_coords * np.sin(np.deg2rad(theta_test)) + y_coords * np.cos(np.deg2rad(theta_test)))
+        dyprime_dtheta = scale_true * (x_coords * np.cos(np.deg2rad(theta_test)) - y_coords * np.sin(np.deg2rad(theta_test)))
+        
+        J_theta_grad = np.sum((I_prime_test - img_output_cropped) * (I_prime_dx * dxprime_dtheta + I_prime_dy * dyprime_dtheta))
+        dJ_dtheta_range.append(J_theta_grad)
+    
+    plt.figure(figsize=(8, 5))
+    plt.plot(theta_range_grad, dJ_dtheta_range, 'purple', linewidth=2, label='∂J/∂θ')
+    plt.axhline(y=0, color='black', linestyle='-', linewidth=1, alpha=0.5)
+    plt.axvline(x=theta_true_deg, color='r', linestyle='--', linewidth=2, label=f'真値 {theta_true_deg}°')
+    plt.axvline(x=theta_est, color='g', linestyle=':', linewidth=2, label=f'推定値 {theta_est:.2f}°')
+    plt.title("回転角度θに対する目的関数の一階微分 ∂J/∂θ")
+    plt.xlabel("回転角度θ（度）")
+    plt.ylabel("∂J/∂θ")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "gradient_vs_theta.png"), dpi=300)
+    plt.close()
+
+    # 新規追加: スケールsに対する目的関数の一階微分 ∂J/∂s
+    scale_range_grad = np.linspace(max(0.1, scale_true - 0.3), scale_true + 0.3, 100)
+    dJ_dscale_range = []
+    
+    for scale_test in scale_range_grad:
+        M_test = st.compute_M(scale_test, np.deg2rad(theta_true_deg), 0, 0)
+        I_prime_test = st.apply_similarity_transform_reverse(img_input, M_test)
+        I_prime_test = st.crop_img_into_circle(I_prime_test)
+        
+        I_prime_dx, I_prime_dy = apply_smoothing_differrential_filter(I_prime_test, kernel_size=kernel_size, sigma=sigma)
+        
+        H, W = I_prime_test.shape[:2]
+        y_coords, x_coords = np.meshgrid(np.arange(H), np.arange(W), indexing='ij')
+        x_coords = x_coords - W / 2
+        y_coords = y_coords - H / 2
+        
+        dxprime_dscale = x_coords * np.cos(np.deg2rad(theta_true_deg)) - y_coords * np.sin(np.deg2rad(theta_true_deg))
+        dyprime_dscale = x_coords * np.sin(np.deg2rad(theta_true_deg)) + y_coords * np.cos(np.deg2rad(theta_true_deg))
+        
+        J_scale_grad = np.sum((I_prime_test - img_output_cropped) * (I_prime_dx * dxprime_dscale + I_prime_dy * dyprime_dscale))
+        dJ_dscale_range.append(J_scale_grad)
+    
+    plt.figure(figsize=(8, 5))
+    plt.plot(scale_range_grad, dJ_dscale_range, 'orange', linewidth=2, label='∂J/∂s')
+    plt.axhline(y=0, color='black', linestyle='-', linewidth=1, alpha=0.5)
+    plt.axvline(x=scale_true, color='r', linestyle='--', linewidth=2, label=f'真値 {scale_true}')
+    plt.axvline(x=scale_est, color='g', linestyle=':', linewidth=2, label=f'推定値 {scale_est:.3f}')
+    plt.title("スケールsに対する目的関数の一階微分 ∂J/∂s")
+    plt.xlabel("スケールs")
+    plt.ylabel("∂J/∂s")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "gradient_vs_scale.png"), dpi=300)
+    plt.close()
+
+    # 新規追加: スケールに対する目的関数の変化（真値中心）
+    scale_range = np.linspace(max(0.1, scale_true - 0.3), scale_true + 0.3, 100)
+    J_scale_range = []
+    
+    for scale_test in scale_range:
+        M_test = st.compute_M(scale_test, np.deg2rad(theta_true_deg), 0, 0)
+        img_test = st.apply_similarity_transform_reverse(img_input, M_test)
+        img_test_cropped = st.crop_img_into_circle(img_test)
+        J_test = 0.5 * np.sum((img_test_cropped - img_output_cropped) ** 2)
+        J_scale_range.append(J_test)
+    
+    plt.figure(figsize=(8, 5))
+    plt.plot(scale_range, J_scale_range, 'b-', linewidth=2, label='目的関数J')
+    plt.axvline(x=scale_true, color='r', linestyle='--', linewidth=2, label=f'真値 {scale_true}')
+    plt.axvline(x=scale_est, color='g', linestyle=':', linewidth=2, label=f'推定値 {scale_est:.3f}')
+    plt.title("スケールsに対する目的関数Jの変化")
+    plt.xlabel("スケールs")
+    plt.ylabel("目的関数J")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "objective_vs_scale.png"), dpi=300)
+    plt.close()
+
+    # 新規追加: 真値からの誤差の推移グラフ
+    theta_error_history = [abs(theta - theta_true_deg) for theta in theta_history]
+    scale_error_history = [abs(scale - scale_true) for scale in scale_history]
+    
+    plt.figure(figsize=(8, 5))
+    plt.subplot(1, 2, 1)
+    plt.plot(theta_error_history, 'b-', linewidth=2)
+    plt.title("回転角度の誤差推移")
+    plt.xlabel("反復回数")
+    plt.ylabel("角度誤差（度）")
+    plt.grid(True, alpha=0.3)
+    plt.yscale('log')
+    
+    plt.subplot(1, 2, 2)
+    plt.plot(scale_error_history, 'r-', linewidth=2)
+    plt.title("スケールの誤差推移")
+    plt.xlabel("反復回数")
+    plt.ylabel("スケール誤差")
+    plt.grid(True, alpha=0.3)
+    plt.yscale('log')
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "error_convergence.png"), dpi=300)
+    plt.close()
+
+   
+
+    # 3. 目的関数の一階微分（勾配ノルム）の変化
+    if J_theta_list and J_scale_list:
+        gradient_norms = [np.sqrt(jt**2 + js**2) for jt, js in zip(J_theta_list, J_scale_list)]
+        gradient_iterations = list(range(len(gradient_norms)))
+        
+        plt.figure(figsize=(8, 6))
+        plt.plot(gradient_norms, gradient_iterations, 'purple', marker='o', markersize=3, linewidth=2, label='勾配ノルム')
+        plt.axvline(x=0, color='r', linestyle='--', linewidth=2, label='収束目標（勾配=0）')
+        plt.title("目的関数の一階微分（勾配ノルム）の変化")
+        plt.xlabel("勾配ノルム ||∇J||")
+        plt.ylabel("反復回数")
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        plt.gca().invert_yaxis()
+        plt.xscale('log')  # 対数スケール
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, "gradient_norm_path.png"), dpi=300)
+        plt.close()
+
+    
+
 
     # CSV保存
     result_summary = pd.DataFrame([{
@@ -264,6 +432,46 @@ def main():
             "スケールs": scale_history
         })
         history_df.to_csv(os.path.join(output_dir, "history.csv"), index=False, encoding="utf-8-sig")
+        
+        # 新規追加: 解析用データのCSV保存
+        analysis_df = pd.DataFrame({
+            "回転角度θ（度）": theta_range,
+            "目的関数J（θ変化）": J_theta_range
+        })
+        analysis_df.to_csv(os.path.join(output_dir, "theta_analysis.csv"), index=False, encoding="utf-8-sig")
+        
+        scale_analysis_df = pd.DataFrame({
+            "スケールs": scale_range,
+            "目的関数J（s変化）": J_scale_range
+        })
+        scale_analysis_df.to_csv(os.path.join(output_dir, "scale_analysis.csv"), index=False, encoding="utf-8-sig")
+        
+        # 勾配解析データの保存
+        theta_grad_df = pd.DataFrame({
+            "回転角度θ（度）": theta_range_grad,
+            "∂J/∂θ": dJ_dtheta_range
+        })
+        theta_grad_df.to_csv(os.path.join(output_dir, "theta_gradient_analysis.csv"), index=False, encoding="utf-8-sig")
+        
+        scale_grad_df = pd.DataFrame({
+            "スケールs": scale_range_grad,
+            "∂J/∂s": dJ_dscale_range
+        })
+        scale_grad_df.to_csv(os.path.join(output_dir, "scale_gradient_analysis.csv"), index=False, encoding="utf-8-sig")
+        
+        # 新規追加: パラメータ軌跡データの保存
+        if theta_history and scale_history and J_value_list and J_theta_list and J_scale_list:
+            gradient_norms = [np.sqrt(jt**2 + js**2) for jt, js in zip(J_theta_list, J_scale_list)]
+            path_df = pd.DataFrame({
+                "反復回数": list(range(len(theta_history))),
+                "回転角度θ（度）": theta_history,
+                "スケールs": scale_history,
+                "目的関数値J": J_value_list,
+                "勾配ノルム": gradient_norms,
+                "∂J/∂θ": J_theta_list,
+                "∂J/∂s": J_scale_list
+            })
+            path_df.to_csv(os.path.join(output_dir, "solution_path.csv"), index=False, encoding="utf-8-sig")
 
     print(f"\n結果は {output_dir} に保存されました")
 
