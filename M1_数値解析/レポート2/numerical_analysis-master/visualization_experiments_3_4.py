@@ -13,11 +13,16 @@ import re
 plt.rcParams['font.family'] = 'MS Gothic'
 plt.rcParams['axes.unicode_minus'] = False
 
-def extract_experiment_info(folder_name):
+def extract_experiment_info(folder_name, parent_folder=""):
     """
-    フォルダ名から実験情報を抽出
+    フォルダ名から実験情報を抽出（階層構造に対応）
     """
-    # 実験3: カーネルサイズ実験
+    # 実験3: カーネルサイズ実験（新しい階層構造）
+    if parent_folder.startswith('kernel'):
+        kernel_size = int(parent_folder.replace('kernel', ''))
+        return 'kernel', kernel_size, None, None, None
+    
+    # 従来のkernel検出（フォルダ名に含まれる場合）
     if 'kernel' in folder_name.lower():
         kernel_match = re.search(r'kernel_?(\d+)', folder_name)
         if kernel_match:
@@ -39,7 +44,7 @@ def extract_experiment_info(folder_name):
 
 def load_experiment_data(base_dirs):
     """
-    複数のディレクトリから実験データを読み込み
+    複数のディレクトリから実験データを読み込み（階層構造対応）
     """
     experiments = []
     
@@ -48,52 +53,104 @@ def load_experiment_data(base_dirs):
             print(f"ディレクトリが見つかりません: {base_dir}")
             continue
         
-        folders = glob.glob(os.path.join(base_dir, "*"))
-        print(f"{base_dir}: {len(folders)}個のフォルダを発見")
+        # 第一階層のフォルダ検索
+        first_level_folders = glob.glob(os.path.join(base_dir, "*"))
+        print(f"{base_dir}: {len(first_level_folders)}個のフォルダを発見")
         
-        for folder in folders:
-            if not os.path.isdir(folder):
-                continue
-                
-            folder_name = os.path.basename(folder)
-            exp_type, kernel_size, true_scale, true_angle, init_values = extract_experiment_info(folder_name)
-            
-            if exp_type is None:
+        for first_folder in first_level_folders:
+            if not os.path.isdir(first_folder):
                 continue
             
-            # CSVファイルのパス
-            result_path = os.path.join(folder, "result_summary.csv")
-            history_path = os.path.join(folder, "history.csv")
+            first_folder_name = os.path.basename(first_folder)
             
-            if not os.path.exists(result_path) or not os.path.exists(history_path):
-                print(f"CSVファイルが見つかりません: {folder_name}")
-                continue
+            # kernel3, kernel5などの場合は第二階層を探索
+            if first_folder_name.startswith('kernel'):
+                second_level_folders = glob.glob(os.path.join(first_folder, "*"))
+                for second_folder in second_level_folders:
+                    if not os.path.isdir(second_folder):
+                        continue
+                    
+                    second_folder_name = os.path.basename(second_folder)
+                    exp_type, kernel_size, true_scale, true_angle, init_values = extract_experiment_info(
+                        second_folder_name, first_folder_name)
+                    
+                    if exp_type is None:
+                        continue
+                    
+                    # CSVファイルのパス
+                    result_path = os.path.join(second_folder, "result_summary.csv")
+                    history_path = os.path.join(second_folder, "history.csv")
+                    
+                    if not os.path.exists(result_path) or not os.path.exists(history_path):
+                        print(f"CSVファイルが見つかりません: {first_folder_name}/{second_folder_name}")
+                        continue
+                    
+                    try:
+                        # 結果サマリー読み込み
+                        result_df = pd.read_csv(result_path, encoding='utf-8-sig')
+                        result = result_df.iloc[0].to_dict()
+                        
+                        # 履歴読み込み
+                        history_df = pd.read_csv(history_path, encoding='utf-8-sig')
+                        
+                        experiment = {
+                            'exp_type': exp_type,
+                            'kernel_size': kernel_size,
+                            'true_scale': true_scale,
+                            'true_angle': true_angle,
+                            'init_values': init_values,
+                            'result': result,
+                            'history': history_df,
+                            'folder_name': f"{first_folder_name}/{second_folder_name}",
+                            'folder_path': second_folder
+                        }
+                        
+                        experiments.append(experiment)
+                        print(f"読み込み成功: {first_folder_name}/{second_folder_name}")
+                        
+                    except Exception as e:
+                        print(f"エラー {first_folder_name}/{second_folder_name}: {e}")
             
-            try:
-                # 結果サマリー読み込み
-                result_df = pd.read_csv(result_path, encoding='utf-8-sig')
-                result = result_df.iloc[0].to_dict()
+            else:
+                # 直接の第一階層フォルダ（実験4など）
+                exp_type, kernel_size, true_scale, true_angle, init_values = extract_experiment_info(first_folder_name)
                 
-                # 履歴読み込み
-                history_df = pd.read_csv(history_path, encoding='utf-8-sig')
+                if exp_type is None:
+                    continue
                 
-                experiment = {
-                    'exp_type': exp_type,
-                    'kernel_size': kernel_size,
-                    'true_scale': true_scale,
-                    'true_angle': true_angle,
-                    'init_values': init_values,
-                    'result': result,
-                    'history': history_df,
-                    'folder_name': folder_name,
-                    'folder_path': folder
-                }
+                # CSVファイルのパス
+                result_path = os.path.join(first_folder, "result_summary.csv")
+                history_path = os.path.join(first_folder, "history.csv")
                 
-                experiments.append(experiment)
-                print(f"読み込み成功: {folder_name}")
+                if not os.path.exists(result_path) or not os.path.exists(history_path):
+                    print(f"CSVファイルが見つかりません: {first_folder_name}")
+                    continue
                 
-            except Exception as e:
-                print(f"エラー {folder}: {e}")
+                try:
+                    # 結果サマリー読み込み
+                    result_df = pd.read_csv(result_path, encoding='utf-8-sig')
+                    result = result_df.iloc[0].to_dict()
+                    
+                    # 履歴読み込み
+                    history_df = pd.read_csv(history_path, encoding='utf-8-sig')
+                    
+                    experiment = {
+                        'exp_type': exp_type,
+                        'kernel_size': kernel_size,
+                        'true_scale': true_scale,
+                        'true_angle': true_angle,
+                        'init_values': init_values,
+                        'result': result,
+                        'history': history_df,
+                        'folder_name': first_folder_name,
+                        'folder_path': first_folder
+                    }
+                    
+                    experiments.append(experiment)
+                    print(f"読み込み成功: {first_folder_name}")
+                    
+                except Exception as e:
+                    print(f"エラー {first_folder_name}: {e}")
     
     return experiments
 
@@ -221,7 +278,76 @@ def plot_extreme_parameters(experiments, output_dir="visualization_results"):
     for exp in extreme_experiments:
         exp['converged'] = int(exp['result']['反復回数']) < 999
     
-    # 1. 真値vs収束成功率のマップ
+    # 1. 収束過程の比較（新規追加）
+    fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+    
+    # 角度収束過程
+    ax1 = axes[0]
+    for exp in extreme_experiments[:8]:  # 代表的な実験のみ表示
+        history = exp['history']
+        iterations = range(len(history))
+        theta_values = history['回転角度θ（deg）']
+        
+        converged = exp['converged']
+        style = '-' if converged else '--'
+        alpha = 0.8 if converged else 0.5
+        linewidth = 2 if converged else 1.5
+        
+        # ラベル作成
+        if exp['true_scale'] != 1.5:
+            label = f"s_true={exp['true_scale']:.1f}"
+        elif exp['true_angle'] != 30.0:
+            label = f"θ_true={exp['true_angle']:.0f}°"
+        else:
+            init_s, init_t = exp['init_values']
+            label = f"init: s={init_s:.1f}, θ={init_t:.0f}°"
+        
+        ax1.plot(iterations, theta_values, style, 
+                label=label, linewidth=linewidth, alpha=alpha)
+    
+    ax1.axhline(y=30.0, color='red', linestyle=':', linewidth=2, label='基準値 (30°)')
+    ax1.set_xlabel('反復回数')
+    ax1.set_ylabel('推定角度θ (度)')
+    ax1.set_title('極端パラメータ：角度収束過程')
+    ax1.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    ax1.grid(True, alpha=0.3)
+    
+    # スケール収束過程
+    ax2 = axes[1]
+    for exp in extreme_experiments[:8]:  # 代表的な実験のみ表示
+        history = exp['history']
+        iterations = range(len(history))
+        scale_values = history['スケールs']
+        
+        converged = exp['converged']
+        style = '-' if converged else '--'
+        alpha = 0.8 if converged else 0.5
+        linewidth = 2 if converged else 1.5
+        
+        # ラベル作成
+        if exp['true_scale'] != 1.5:
+            label = f"s_true={exp['true_scale']:.1f}"
+        elif exp['true_angle'] != 30.0:
+            label = f"θ_true={exp['true_angle']:.0f}°"
+        else:
+            init_s, init_t = exp['init_values']
+            label = f"init: s={init_s:.1f}, θ={init_t:.0f}°"
+        
+        ax2.plot(iterations, scale_values, style, 
+                label=label, linewidth=linewidth, alpha=alpha)
+    
+    ax2.axhline(y=1.5, color='red', linestyle=':', linewidth=2, label='基準値 (1.5)')
+    ax2.set_xlabel('反復回数')
+    ax2.set_ylabel('推定スケールs')
+    ax2.set_title('極端パラメータ：スケール収束過程')
+    ax2.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    ax2.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'extreme_convergence_process.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # 2. 真値vs収束成功率のマップ
     fig, axes = plt.subplots(1, 2, figsize=(15, 6))
     
     # スケール真値の影響
@@ -275,7 +401,7 @@ def plot_extreme_parameters(experiments, output_dir="visualization_results"):
     plt.savefig(os.path.join(output_dir, 'extreme_convergence_rates.png'), dpi=300, bbox_inches='tight')
     plt.close()
     
-    # 2. 推定誤差の分布
+    # 3. 推定誤差の分布
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
     
     converged_exps = [exp for exp in extreme_experiments if exp['converged']]
